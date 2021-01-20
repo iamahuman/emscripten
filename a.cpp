@@ -22,8 +22,10 @@ std::cout << "a2\n";
   ~SyncToAsync() {
 std::cout << "a3\n";
     done = true;
-    // Send an empty job to wake up the child.
-    doWork([](Callback func){});
+    // Wake up the child with an empty task.
+    doWork([](Callback func){
+      func();
+    });
     void* status;
     int rc = pthread_join(pthread, &status);
     assert(rc == 0);
