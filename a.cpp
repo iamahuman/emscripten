@@ -7,6 +7,8 @@
 
 class SyncToAsync {
 public:
+  using Callback = std::function<void()>;
+
   SyncToAsync() {
 std::cout << "a1\n";
     int rc = pthread_create(&pthread, NULL, threadMain, (void*)this);
@@ -21,7 +23,7 @@ std::cout << "a2\n";
 std::cout << "a3\n";
     done = true;
     // Send an empty job to wake up the child.
-    doWork([](){});
+    doWork([](Callback func){});
     void* status;
     int rc = pthread_join(pthread, &status);
     assert(rc == 0);
@@ -32,7 +34,10 @@ std::cout << "a3\n";
 std::cout << "a4\n";
   }
 
-  void doWork(std::function<void()> work_) {
+  // Run some work. This is a synchronous call, but the thread can do async work
+  // for us. To allow us to know when the async work finishes, the worker is
+  // given a function to call at that time.
+  void doWork(std::function<void(Callback)> work_) {
 std::cout << "a5\n";
     // Busy-wait until the child is ready.
     bool ready;
@@ -64,7 +69,7 @@ private:
   pthread_t pthread;
   pthread_mutex_t workMutex, finishedMutex;
   pthread_cond_t workCondition, finishedCondition;
-  std::function<void()> work;
+  std::function<void(Callback)> work;
   bool threadReady = false;
   bool done = false;
 
@@ -89,31 +94,34 @@ std::cout << "b2.2\n";
     pthread_mutex_unlock(&parent->workMutex);
 std::cout << "b2.3\n";
     // Do the work.
-    work();
-    // Notify the caller.
-    pthread_mutex_lock(&parent->finishedMutex);
-    pthread_cond_signal(&parent->finishedCondition);
-    pthread_mutex_unlock(&parent->finishedMutex);
-    if (done) {
-std::cout << "b2.4\n";
-      pthread_exit(0);
-      return;
-    }
-std::cout << "b3\n";
+    work([&]() {
+      // We are called, so the work was finished. Notify the caller.
+      pthread_mutex_lock(&parent->finishedMutex);
+      pthread_cond_signal(&parent->finishedCondition);
+      pthread_mutex_unlock(&parent->finishedMutex);
+      if (done) {
+  std::cout << "b2.4\n";
+        emscripten_cancel_main_loop();
+        pthread_exit(0);
+      }
+  std::cout << "b3\n";
+    });
   }
 };
 
 int main() {
   SyncToAsync helper;
-  helper.doWork([]() {
+  helper.doWork([](SyncToAsync::Callback func) {
     std::cout << "hello, world\n";
+    func();
   });
   EM_ASM({
     var x = Date.now();
     while (Date.now() - x < 2000) {}
   });
-  helper.doWork([]() {
+  helper.doWork([](SyncToAsync::Callback func) {
     std::cout << "goodbye, world\n";
+    func();
   });
 }
 
