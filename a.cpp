@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <emscripten.h>
 #include <pthread.h>
 
 #include <functional>
@@ -68,32 +69,37 @@ private:
   bool done = false;
 
   static void* threadMain(void* arg) {
+std::cout << "b0\n";
+    emscripten_set_main_loop_arg(threadLoop, arg, 0, 0);
+    return 0;
+  }
+
+  static void threadLoop(void* arg) {
 std::cout << "b1\n";
     auto* parent = (SyncToAsync*)arg;
-    while (1) {
 std::cout << "b2\n";
-      pthread_mutex_lock(&parent->workMutex);
-      parent->threadReady = true;
+    pthread_mutex_lock(&parent->workMutex);
+    parent->threadReady = true;
 std::cout << "b2.1\n";
-      pthread_cond_wait(&parent->workCondition, &parent->workMutex);
+    pthread_cond_wait(&parent->workCondition, &parent->workMutex);
 std::cout << "b2.2\n";
-      auto work = parent->work;
-      auto done = parent->done;
-      parent->threadReady = false;
-      pthread_mutex_unlock(&parent->workMutex);
+    auto work = parent->work;
+    auto done = parent->done;
+    parent->threadReady = false;
+    pthread_mutex_unlock(&parent->workMutex);
 std::cout << "b2.3\n";
-      // Do the work.
-      work();
-      // Notify the caller.
-      pthread_mutex_lock(&parent->finishedMutex);
-      pthread_cond_signal(&parent->finishedCondition);
-      pthread_mutex_unlock(&parent->finishedMutex);
-      if (done) {
+    // Do the work.
+    work();
+    // Notify the caller.
+    pthread_mutex_lock(&parent->finishedMutex);
+    pthread_cond_signal(&parent->finishedCondition);
+    pthread_mutex_unlock(&parent->finishedMutex);
+    if (done) {
 std::cout << "b2.4\n";
-        return 0;
-      }
-std::cout << "b3\n";
+      pthread_exit(0);
+      return;
     }
+std::cout << "b3\n";
   }
 };
 
@@ -101,6 +107,10 @@ int main() {
   SyncToAsync helper;
   helper.doWork([]() {
     std::cout << "hello, world\n";
+  });
+  EM_ASM({
+    var x = Date.now();
+    while (Date.now() - x < 2000) {}
   });
   helper.doWork([]() {
     std::cout << "goodbye, world\n";
