@@ -111,18 +111,43 @@ std::cout << "b2.3\n";
   }
 };
 
+// Testcase
+
+static SyncToAsync::Callback __somethingToCallLater;
+
+void prepareToCallLater(SyncToAsync::Callback callback) {
+  __somethingToCallLater = callback;
+}
+
+extern "C" EMSCRIPTEN_KEEPALIVE void callWhatWasPrepared() {
+  __somethingToCallLater();
+}
+
 int main() {
   SyncToAsync helper;
+  // Perform an actually synchronous task.
   helper.doWork([](SyncToAsync::Callback func) {
-    std::cout << "hello, world\n";
+    std::cout << "hello from sync C++\n";
     func();
   });
-  EM_ASM({
-    var x = Date.now();
-    while (Date.now() - x < 2000) {}
-  });
+
+  // Perform an async task.
   helper.doWork([](SyncToAsync::Callback func) {
-    std::cout << "goodbye, world\n";
+    // We can't just pass SyncToAsync::Callback over to JS through the C ABI, so
+    // handle the JS->C++ call carefully, by calling into C and then C calling
+    // into C++.
+    prepareToCallLater(func);
+    EM_ASM({
+      setTimeout(function() {
+        console.log("hello from async JS");
+        _callWhatWasPrepared();
+      }, 1);
+    });
+  });
+
+  // Perform another synchronous task.
+  helper.doWork([](SyncToAsync::Callback func) {
+    std::cout << "hello again from sync C++\n";
     func();
   });
 }
