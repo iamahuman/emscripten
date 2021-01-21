@@ -509,7 +509,7 @@ function asmFloatToInt(x) {
 function makeGetTempDouble(i, type, forSet) { // get an aliased part of the tempDouble temporary storage
   // Cannot use makeGetValue because it uses us
   // this is a unique case where we *can* use HEAPF64
-  var slab = type == 'double' ? 'HEAPF64' : makeGetSlabs(null, type)[0];
+  var heap = getHeapForType(type);
   var ptr = getFastValue('tempDoublePtr', '+', Runtime.getNativeTypeSize(type)*i);
   var offset;
   if (type == 'double') {
@@ -517,7 +517,7 @@ function makeGetTempDouble(i, type, forSet) { // get an aliased part of the temp
   } else {
     offset = getHeapOffset(ptr, type);
   }
-  var ret = slab + '[' + offset + ']';
+  var ret = heap + '[' + offset + ']';
   if (!forSet) ret = asmCoercion(ret, type);
   return ret;
 }
@@ -584,7 +584,7 @@ function makeGetValue(ptr, pos, type, noNeedFirst, unsigned, ignore, align, noSa
       return asmCoercion('SAFE_HEAP_LOAD' + ((type in Compiletime.FLOAT_TYPES) ? '_D' : '') + '(' + asmCoercion(offset, 'i32') + ', ' + Runtime.getNativeTypeSize(type) + ', ' + (!!unsigned+0) + ')', type, unsigned ? 'u' : undefined);
     }
   }
-  var ret = makeGetSlabs(ptr, type, false, unsigned)[0] + '[' + getHeapOffset(offset, type) + ']';
+  var ret = getHeapForType(type, unsigned) + '[' + getHeapOffset(offset, type) + ']';
   if (forceAsm) {
     ret = asmCoercion(ret, type);
   }
@@ -664,7 +664,7 @@ function makeSetValue(ptr, pos, value, type, noNeedFirst, ignore, align, noSafe,
       return 'SAFE_HEAP_STORE' + ((type in Compiletime.FLOAT_TYPES) ? '_D' : '') + '(' + asmCoercion(offset, 'i32') + ', ' + asmCoercion(value, type) + ', ' + Runtime.getNativeTypeSize(type) + ')';
     }
   }
-  return makeGetSlabs(ptr, type, true).map(function(slab) { return slab + '[' + getHeapOffset(offset, type) + ']=' + value }).join(sep);
+  return getHeapForType(type) + '[' + getHeapOffset(offset, type) + '] = ' + value;
 }
 
 var UNROLL_LOOP_MAX = 8;
@@ -817,7 +817,7 @@ function calcFastOffset(ptr, pos, noNeedFirst) {
   return getFastValue(ptr, '+', pos, 'i32');
 }
 
-function makeGetSlabs(ptr, type, allowMultiple, unsigned) {
+function getHeapForType(type, unsigned) {
   assert(type);
   if (isPointerType(type)) {
     type = 'i32'; // Hardcoded 32-bit
@@ -825,18 +825,18 @@ function makeGetSlabs(ptr, type, allowMultiple, unsigned) {
   switch (type) {
     case 'i1':
     case 'i8':
-      return [unsigned ? 'HEAPU8' : 'HEAP8'];
+      return unsigned ? 'HEAPU8' : 'HEAP8';
     case 'i16':
-      return [unsigned ? 'HEAPU16' : 'HEAP16'];
+      return unsigned ? 'HEAPU16' : 'HEAP16';
     case '<4 x i32>':
     case 'i32':
     case 'i64':
-      return [unsigned ? 'HEAPU32' : 'HEAP32'];
+      return unsigned ? 'HEAPU32' : 'HEAP32';
     case 'double':
-      return ['HEAPF64'];
+      return 'HEAPF64';
     case '<4 x float>':
     case 'float':
-      return ['HEAPF32'];
+      return 'HEAPF32';
   }
   assert(false, 'bad heap type: ' + type);
 }
