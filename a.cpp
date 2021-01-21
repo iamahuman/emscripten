@@ -42,12 +42,7 @@ std::cout << "a4\n";
   void doWork(std::function<void(Callback)> work_) {
 std::cout << "a5\n";
     // Busy-wait until the child is ready.
-    bool ready;
-    do {
-      pthread_mutex_lock(&workMutex);
-      ready = threadReady;
-      pthread_mutex_unlock(&workMutex);
-    } while (!ready);
+    while (!threadReady) {}
 std::cout << "a5.05\n";
     // Lock the later mutex before sending the work, to avoid races.
     pthread_mutex_lock(&finishedMutex);
@@ -72,18 +67,23 @@ private:
   pthread_mutex_t workMutex, finishedMutex;
   pthread_cond_t workCondition, finishedCondition;
   std::function<void(Callback)> work;
-  bool threadReady = false;
+  std::atomic<bool> threadReady;
   bool done = false;
 
   static void* threadMain(void* arg) {
 std::cout << "b0\n";
-    emscripten_set_main_loop_arg(threadLoop, arg, 0, 0);
+    emscripten_async_call(threadIter, arg, 0);
     return 0;
   }
 
-  static void threadLoop(void* arg) {
+  static void threadIter(void* arg) {
 std::cout << "b1\n";
     auto* parent = (SyncToAsync*)arg;
+std::cout << "b1.1\n";
+    if (!pthread_mutex_trylock(&parent->workMutex)) {
+std::cout << "b1.2\n";
+      pthread_mutex_unlock(&parent->workMutex);
+    }
 std::cout << "b2\n";
     pthread_mutex_lock(&parent->workMutex);
     parent->threadReady = true;
@@ -102,11 +102,14 @@ std::cout << "b2.3\n";
       pthread_cond_signal(&parent->finishedCondition);
       pthread_mutex_unlock(&parent->finishedMutex);
       if (done) {
-  std::cout << "b2.4\n";
-        emscripten_cancel_main_loop();
+std::cout << "b2.4\n";
         pthread_exit(0);
+      } else {
+std::cout << "b3\n";
+        // Look for more work. (We do this asynchronously to avoid nesting of
+        // the stack, and to keep this function simple without a loop.)
+        emscripten_async_call(threadIter, arg, 0);
       }
-  std::cout << "b3\n";
     });
   }
 };
@@ -138,6 +141,7 @@ int main() {
     // into C++.
     prepareToCallLater(func);
     EM_ASM({
+      console.log("hello from sync JS");
       setTimeout(function() {
         console.log("hello from async JS");
         _callWhatWasPrepared();
@@ -151,4 +155,3 @@ int main() {
     func();
   });
 }
-
