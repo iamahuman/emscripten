@@ -1,3 +1,4 @@
+#include <iostream>
 //===-------------------- condition_variable.cpp --------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
@@ -38,12 +39,16 @@ condition_variable::notify_all() _NOEXCEPT
 void
 condition_variable::wait(unique_lock<mutex>& lk) _NOEXCEPT
 {
-    if (!lk.owns_lock())
+    if (!lk.owns_lock()) {
+    std::cout << "no locky\n";
         __throw_system_error(EPERM,
                                   "condition_variable::wait: mutex not locked");
+                                }
     int ec = __libcpp_condvar_wait(&__cv_, lk.mutex()->native_handle());
-    if (ec)
+    if (ec) {
+    std::cout << "no ec\n";
         __throw_system_error(ec, "condition_variable wait failed");
+        }
 }
 
 void
