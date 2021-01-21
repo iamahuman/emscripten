@@ -116,16 +116,6 @@ std::cout << "b4, " << arg << " owns? " << parent->childLock.owns_lock() << "\n"
 
 // Testcase
 
-static SyncToAsync::Callback __somethingToCallLater;
-
-void prepareToCallLater(SyncToAsync::Callback callback) {
-  __somethingToCallLater = callback;
-}
-
-extern "C" EMSCRIPTEN_KEEPALIVE void callWhatWasPrepared() {
-  __somethingToCallLater();
-}
-
 int main() {
   SyncToAsync helper;
 
@@ -136,19 +126,16 @@ int main() {
   });
 
   std::cout << "Perform an async task.\n";
-  helper.doWork([](SyncToAsync::Callback func) {
-    std::cout << "(Perform an async task.)\n";
-    // We can't just pass SyncToAsync::Callback over to JS through the C ABI, so
-    // handle the JS->C++ call carefully, by calling into C and then C calling
-    // into C++.
-    prepareToCallLater(func);
-    EM_ASM({
-      console.log("hello from sync JS");
-      setTimeout(function() {
-        console.log("hello from async JS");
-        _callWhatWasPrepared();
-      }, 1);
-    });
+  SyncToAsync::Callback keepFuncAlive;
+  helper.doWork([&keepFuncAlive](SyncToAsync::Callback func) {
+    keepFuncAlive = func;
+    struct Caller {
+      static void call(void* arg) {
+        auto* funcAddr = (SyncToAsync::Callback*)arg;
+        (*funcAddr)();
+      }
+    };
+    emscripten_async_call(Caller::call, &keepFuncAlive, 1000);
   });
 
   std::cout << "Perform another synchronous task.\n";
