@@ -120,15 +120,26 @@ int main() {
   SyncToAsync helper;
 
   std::cout << "Perform a synchronous task.\n";
+
   helper.doWork([](SyncToAsync::Callback func) {
-    std::cout << "hello from sync C++\n";
+    std::cout << "  Hello from sync C++\n";
     func();
   });
 
   std::cout << "Perform an async task.\n";
+
+  // We need to be very careful about the lifetime of |func| below, and the
+  // callback we construct from it - things whose lifetime is that of the lambda
+  // will not live long enough for the async callback. We ourselves run
+  // synchronously, so our stack is definitely alive while the thread works.
   SyncToAsync::Callback keepFuncAlive;
-  helper.doWork([&keepFuncAlive](SyncToAsync::Callback func) {
-    keepFuncAlive = func;
+  helper.doWork([&keepFuncAlive](SyncToAsync::Callback resume) {
+    std::cout << "  Hello from sync C++ before the async\n";
+    keepFuncAlive = [resume]() {
+      std::cout << "  Hello from async C++\n";
+      resume();
+    };
+    // Create a simple function pointer to pass to emscripten_async_call.
     struct Caller {
       static void call(void* arg) {
         auto* funcAddr = (SyncToAsync::Callback*)arg;
@@ -140,7 +151,7 @@ int main() {
 
   std::cout << "Perform another synchronous task.\n";
   helper.doWork([](SyncToAsync::Callback func) {
-    std::cout << "hello again from sync C++\n";
+    std::cout << "  Hello again from sync C++\n";
     func();
   });
 }
